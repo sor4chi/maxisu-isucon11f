@@ -1188,11 +1188,6 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-
-		if _, err := tx.Exec("UPDATE `registrations` JOIN `users` ON `users`.`id` = `registrations`.`user_id` SET `total_score` = (SELECT SUM(`score`) FROM `submissions` WHERE `user_id` = `registrations`.`user_id`) WHERE `users`.`code` = ? AND `course_id` = (SELECT `course_id` FROM `classes` WHERE `id` = ?)", score.UserCode, classID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
 	}
 
 	if err := tx.Commit(); err != nil {

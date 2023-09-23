@@ -1,1 +1,1 @@
-ALTER TABLE `registrations` ADD COLUMN `total_score` INT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE `registrations` ADD COLUMN `total_score` AS (SELECT SUM(`score`) FROM `submissions` WHERE `submissions`.`user_id` = `registrations`.`user_id` AND `submissions`.`class_id` IN (SELECT `id` FROM `classes` WHERE `classes`.`course_id` = `registrations`.`course_id`));
