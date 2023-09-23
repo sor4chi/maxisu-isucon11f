@@ -1497,11 +1497,17 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	var args []interface{}
+	query = "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES"
 	for _, user := range targets {
-		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES (?, ?)", req.ID, user.ID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		query += " (?, ?),"
+		args = append(args, req.ID, user.ID)
+	}
+	query = strings.TrimSuffix(query, ",")
+
+	if _, err := tx.Exec(query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
