@@ -1,4 +1,11 @@
 matching_groups:
+  - /api/courses/.+/classes/.+/assignments/scores
+  - /api/courses/.+/classes/.+/assignments/export
+  - /api/courses/.+/classes/.+/assignments
+  - /api/courses/.+/classes
+  - /api/courses/.+/status
+  - /api/announcements/.+
+  - /api/courses/.+
 sort: avg
 reverse: true
 metrics:
