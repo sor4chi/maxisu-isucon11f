@@ -575,6 +575,43 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	courseResults := make([]CourseResult, 0, len(registeredCourses))
 	myGPA := 0.0
 	myCredits := 0
+
+	var totalsScores map[string][]int // key: courseID value: []int
+	query = "SELECT `course_id`, `total_score`" +
+		" FROM `registrations`" +
+		" WHERE `course_id` IN (?)"
+
+	courseIDs := make([]string, 0, len(registeredCourses))
+
+	for _, course := range registeredCourses {
+		courseIDs = append(courseIDs, course.ID)
+	}
+
+	query, args, err := sqlx.In(query, courseIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	query = h.DB.Rebind(query)
+
+	rows, err := h.DB.Query(query, args...)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer rows.Close()
+
+	totalsScores = make(map[string][]int)
+	for rows.Next() {
+		var courseID string
+		var totalScore int
+		if err := rows.Scan(&courseID, &totalScore); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		totalsScores[courseID] = append(totalsScores[courseID], totalScore)
+	}
+
 	for _, course := range registeredCourses {
 		// 講義一覧の取得
 		var classes []Class
@@ -622,15 +659,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 			}
 		}
 
-		// この科目を履修している学生のTotalScore一覧を取得
-		var totals []int
-		query := "SELECT `total_score`" +
-			" FROM `registrations`" +
-			" WHERE `course_id` = ?"
-		if err := h.DB.Select(&totals, query, course.ID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		totals := totalsScores[course.ID]
 
 		courseResults = append(courseResults, CourseResult{
 			Name:             course.Name,
