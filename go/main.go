@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bufio"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -40,7 +42,6 @@ func main() {
 	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
 	e.HideBanner = true
 
-	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
@@ -169,24 +170,28 @@ func (h *handlers) IsAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func getUserInfo(c echo.Context) (userID string, userName string, isAdmin bool, err error) {
+func getUserInfo(c echo.Context) (userID string, userName string, userCode string, isAdmin bool, err error) {
 	sess, err := session.Get(SessionName, c)
 	if err != nil {
-		return "", "", false, err
+		return "", "", "", false, err
 	}
 	_userID, ok := sess.Values["userID"]
 	if !ok {
-		return "", "", false, errors.New("failed to get userID from session")
+		return "", "", "", false, errors.New("failed to get userID from session")
 	}
 	_userName, ok := sess.Values["userName"]
 	if !ok {
-		return "", "", false, errors.New("failed to get userName from session")
+		return "", "", "", false, errors.New("failed to get userName from session")
+	}
+	_userCode, ok := sess.Values["userCode"]
+	if !ok {
+		return "", "", "", false, errors.New("failed to get userCode from session")
 	}
 	_isAdmin, ok := sess.Values["isAdmin"]
 	if !ok {
-		return "", "", false, errors.New("failed to get isAdmin from session")
+		return "", "", "", false, errors.New("failed to get isAdmin from session")
 	}
-	return _userID.(string), _userName.(string), _isAdmin.(bool), nil
+	return _userID.(string), _userName.(string), _userCode.(string), _isAdmin.(bool), nil
 }
 
 type UserType string
@@ -283,6 +288,7 @@ func (h *handlers) Login(c echo.Context) error {
 
 	sess.Values["userID"] = user.ID
 	sess.Values["userName"] = user.Name
+	sess.Values["userCode"] = user.Code
 	sess.Values["isAdmin"] = user.Type == Teacher
 	sess.Options = &sessions.Options{
 		Path:   "/",
@@ -328,14 +334,8 @@ type GetMeResponse struct {
 
 // GetMe GET /api/users/me 自身の情報を取得
 func (h *handlers) GetMe(c echo.Context) error {
-	userID, userName, isAdmin, err := getUserInfo(c)
+	_, userName, userCode, isAdmin, err := getUserInfo(c)
 	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	var userCode string
-	if err := h.DB.Get(&userCode, "SELECT `code` FROM `users` WHERE `id` = ?", userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -357,7 +357,7 @@ type GetRegisteredCourseResponseContent struct {
 
 // GetRegisteredCourses GET /api/users/me/courses 履修中の科目一覧取得
 func (h *handlers) GetRegisteredCourses(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -418,7 +418,7 @@ type RegisterCoursesErrorResponse struct {
 
 // RegisterCourses PUT /api/users/me/courses 履修登録
 func (h *handlers) RegisterCourses(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -554,7 +554,7 @@ type ClassScore struct {
 
 // GetGrades GET /api/users/me/grades 成績取得
 func (h *handlers) GetGrades(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -823,7 +823,7 @@ type AddCourseResponse struct {
 
 // AddCourse POST /api/courses 新規科目登録
 func (h *handlers) AddCourse(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -960,7 +960,7 @@ type GetClassResponse struct {
 
 // GetClasses GET /api/courses/:courseID/classes 科目に紐づく講義一覧の取得
 func (h *handlers) GetClasses(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1082,7 +1082,7 @@ func (h *handlers) AddClass(c echo.Context) error {
 
 // SubmitAssignment POST /api/courses/:courseID/classes/:classID/assignments 課題の提出
 func (h *handlers) SubmitAssignment(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1259,26 +1259,48 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 
 func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
 	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
+
+	if err := os.RemoveAll(tmpDir); err != nil {
 		return err
 	}
-	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
+	if err := os.Mkdir(tmpDir, 0777); err != nil {
 		return err
 	}
 
-	// ファイル名を指定の形式に変更
+	// ファイル名を指定の形式に変更しつつ zip に変換
+	zipFile, err := os.Create(zipFilePath)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	zw := zip.NewWriter(zipFile)
 	for _, submission := range submissions {
-		if err := exec.Command(
-			"cp",
-			AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
-			tmpDir+submission.UserCode+"-"+submission.FileName,
-		).Run(); err != nil {
+		// zip 内のファイル名
+		inZipFilename := submission.UserCode + "-" + submission.FileName
+		w, err := zw.Create(inZipFilename)
+		if err != nil {
+			return err
+		}
+		bw := bufio.NewWriter(w)
+
+		// ファイルコピー
+		srcContent, err := os.Open(AssignmentsDirectory + classID + "-" + submission.UserID + ".pdf")
+		if err != nil {
+			return err
+		}
+		defer srcContent.Close()
+		if _, err := io.Copy(bw, srcContent); err != nil {
+			return err
+		}
+		if err := bw.Flush(); err != nil {
 			return err
 		}
 	}
-
-	// -i 'tmpDir/*': 空zipを許す
-	return exec.Command("zip", "-j", "-r", zipFilePath, tmpDir, "-i", tmpDir+"*").Run()
+	if err := zw.Flush(); err != nil {
+		return err
+	}
+	return zw.Close()
 }
 
 // ---------- Announcement API ----------
@@ -1298,7 +1320,7 @@ type GetAnnouncementsResponse struct {
 
 // GetAnnouncementList GET /api/announcements お知らせ一覧取得
 func (h *handlers) GetAnnouncementList(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1488,7 +1510,7 @@ type AnnouncementDetail struct {
 
 // GetAnnouncementDetail GET /api/announcements/:announcementID お知らせ詳細取得
 func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
-	userID, _, _, err := getUserInfo(c)
+	userID, _, _, _, err := getUserInfo(c)
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
