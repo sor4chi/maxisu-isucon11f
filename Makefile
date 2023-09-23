@@ -40,5 +40,5 @@ mysql-conf-deploy:
 
 .PHONY: app-deploy
 app-deploy:
-	cd ./webapp/go && make
+	cd ./go && make
 	sudo systemctl restart isucholar.go.service
