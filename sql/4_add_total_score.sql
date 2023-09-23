@@ -1,3 +1,5 @@
+DROP VIEW IF EXISTS `registrations_with_total_score`;
+
 CREATE VIEW
     `registrations_with_total_score` AS
 SELECT
