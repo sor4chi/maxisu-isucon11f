@@ -771,6 +771,9 @@ func (h *handlers) SearchCourses(c echo.Context) error {
 	condition += " LIMIT ? OFFSET ?"
 	args = append(args, limit+1, offset)
 
+	// 1=1 AND を削除する
+	condition = strings.Replace(condition, "1=1 AND ", "", -1)
+
 	// 結果が0件の時は空配列を返却
 	res := make([]GetCourseDetailResponse, 0)
 	if err := h.DB.Select(&res, query+condition, args...); err != nil {
@@ -1350,6 +1353,9 @@ func (h *handlers) GetAnnouncementList(c echo.Context) error {
 	offset := limit * (page - 1)
 	// limitより多く上限を設定し、実際にlimitより多くレコードが取得できた場合は次のページが存在する
 	args = append(args, limit+1, offset)
+
+	// 1=1 AND を削除する
+	query = strings.Replace(query, "1=1 AND ", "", -1)
 
 	if err := tx.Select(&announcements, query, args...); err != nil {
 		c.Logger().Error(err)
