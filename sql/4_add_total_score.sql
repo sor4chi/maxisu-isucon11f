@@ -17,3 +17,6 @@ FROM
         WHERE
             `classes`.`id` = `submissions`.`class_id`
     )
+GROUP BY
+    `registrations`.`course_id`,
+    `registrations`.`user_id`;
