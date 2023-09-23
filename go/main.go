@@ -1252,10 +1252,6 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 
 	zipFilePath := AssignmentsDirectory + classID + ".zip"
-	if err := createSubmissionsZip(zipFilePath, classID, submissions); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
 
 	if _, err := tx.Exec("UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
 		c.Logger().Error(err)
@@ -1263,6 +1259,11 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 
 	if err := tx.Commit(); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if err := createSubmissionsZip(zipFilePath, classID, submissions); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
