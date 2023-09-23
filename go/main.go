@@ -493,12 +493,22 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errors)
 	}
 
+	if len(newlyAdded) == 0 {
+		return c.NoContent(http.StatusOK)
+	}
+
+	var args []interface{}
+	query = "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES"
 	for _, course := range newlyAdded {
-		_, err = tx.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		query += " (?, ?),"
+		args = append(args, course.ID, userID)
+	}
+	query = strings.TrimSuffix(query, ",")
+	query += " ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)"
+
+	if _, err := tx.Exec(query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -1495,11 +1505,21 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	if len(targets) == 0 {
+		return c.NoContent(http.StatusCreated)
+	}
+
+	var args []interface{}
+	query = "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES"
 	for _, user := range targets {
-		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES (?, ?)", req.ID, user.ID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		query += " (?, ?),"
+		args = append(args, req.ID, user.ID)
+	}
+	query = strings.TrimSuffix(query, ",")
+
+	if _, err := tx.Exec(query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
