@@ -1263,10 +1263,11 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	if err := createSubmissionsZip(zipFilePath, classID, submissions); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	go func() {
+		if err := createSubmissionsZip(zipFilePath, classID, submissions); err != nil {
+			c.Logger().Error(err)
+		}
+	}()
 
 	return c.File(zipFilePath)
 }
