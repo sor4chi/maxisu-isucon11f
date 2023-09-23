@@ -495,12 +495,18 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errors)
 	}
 
+	var args []interface{}
+	query = "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES"
 	for _, course := range newlyAdded {
-		_, err = tx.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		query += " (?, ?)"
+		args = append(args, course.ID, userID)
+	}
+	query = strings.TrimSuffix(query, ",")
+	query += " ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)"
+
+	if _, err := tx.Exec(query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err = tx.Commit(); err != nil {
