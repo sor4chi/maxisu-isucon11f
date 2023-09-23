@@ -1290,7 +1290,7 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 	zw := zip.NewWriter(zipFile)
 	for _, submission := range submissions {
 		// zip 内のファイル名
-		inZipFilename := tmpDir + submission.UserCode + "-" + submission.FileName
+		inZipFilename := submission.UserCode + "-" + submission.FileName
 		w, err := zw.Create(inZipFilename)
 		if err != nil {
 			return err
