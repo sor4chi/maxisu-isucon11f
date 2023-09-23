@@ -498,7 +498,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	var args []interface{}
 	query = "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES"
 	for _, course := range newlyAdded {
-		query += " (?, ?)"
+		query += " (?, ?),"
 		args = append(args, course.ID, userID)
 	}
 	query = strings.TrimSuffix(query, ",")
