@@ -493,6 +493,10 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errors)
 	}
 
+	if len(newlyAdded) == 0 {
+		return c.NoContent(http.StatusOK)
+	}
+
 	var args []interface{}
 	query = "INSERT INTO `registrations` (`course_id`, `user_id`) VALUES"
 	for _, course := range newlyAdded {
@@ -1499,6 +1503,10 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 	if err := tx.Select(&targets, query, req.CourseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if len(targets) == 0 {
+		return c.NoContent(http.StatusCreated)
 	}
 
 	var args []interface{}
