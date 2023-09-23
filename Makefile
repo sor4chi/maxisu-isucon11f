@@ -1,3 +1,5 @@
+all: rotate-all app-deploy
+
 .PHONY: rotate-all
 rotate-all: rotate-access-log rotate-slow-log
 
