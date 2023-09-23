@@ -39,7 +39,7 @@ func main() {
 	profile := profile.Start(profile.ProfilePath("/home/isucon/webapp/go"))
 
 	e := echo.New()
-	e.Debug = GetEnv("DEBUG", "") == "true"
+	e.Debug = false
 	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
 	e.HideBanner = true
 
@@ -379,9 +379,9 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 	var courses []Course
 	query := "SELECT `courses`.*" +
 		" FROM `courses`" +
-		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
-		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
-	if err := tx.Select(&courses, query, StatusClosed, userID); err != nil {
+		" WHERE EXISTS (SELECT * FROM `registrations` WHERE `registrations`.`course_id` = `courses`.`id` AND `registrations`.`user_id` = ?)" +
+		" AND `courses`.`status` != ?"
+	if err := tx.Select(&courses, query, userID, StatusClosed); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -479,9 +479,9 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	var alreadyRegistered []Course
 	query := "SELECT `courses`.*" +
 		" FROM `courses`" +
-		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
-		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
-	if err := tx.Select(&alreadyRegistered, query, StatusClosed, userID); err != nil {
+		" WHERE EXISTS (SELECT * FROM `registrations` WHERE `registrations`.`course_id` = `courses`.`id` AND `registrations`.`user_id` = ?)" +
+		" AND `courses`.`status` != ?"
+	if err := tx.Select(&alreadyRegistered, query, userID, StatusClosed); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -777,6 +777,9 @@ func (h *handlers) SearchCourses(c echo.Context) error {
 	// limitより多く上限を設定し、実際にlimitより多くレコードが取得できた場合は次のページが存在する
 	condition += " LIMIT ? OFFSET ?"
 	args = append(args, limit+1, offset)
+
+	// 1=1 AND を削除する
+	condition = strings.Replace(condition, "1=1 AND ", "", -1)
 
 	// 結果が0件の時は空配列を返却
 	res := make([]GetCourseDetailResponse, 0)
@@ -1099,15 +1102,8 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	courseID := c.Param("courseID")
 	classID := c.Param("classID")
 
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
 	var status CourseStatus
-	if err := tx.Get(&status, "SELECT `status` FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
+	if err := h.DB.Get(&status, "SELECT `status` FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
@@ -1118,7 +1114,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 
 	var registrationCount int
-	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ?", userID, courseID); err != nil {
+	if err := h.DB.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ?", userID, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1127,7 +1123,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 
 	var submissionClosed bool
-	if err := tx.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ? FOR SHARE", classID); err != nil && err != sql.ErrNoRows {
+	if err := h.DB.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ? FOR SHARE", classID); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
@@ -1143,7 +1139,19 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 	defer file.Close()
 
+	tx, err := h.DB.Beginx()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer tx.Rollback()
+
 	if _, err := tx.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if err := tx.Commit(); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1155,15 +1163,12 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
-	if err := os.WriteFile(dst, data, 0666); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
 
-	if err := tx.Commit(); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	go func() {
+		if err := os.WriteFile(dst, data, 0666); err != nil {
+			c.Logger().Error(err)
+		}
+	}()
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -1358,6 +1363,9 @@ func (h *handlers) GetAnnouncementList(c echo.Context) error {
 	// limitより多く上限を設定し、実際にlimitより多くレコードが取得できた場合は次のページが存在する
 	args = append(args, limit+1, offset)
 
+	// 1=1 AND を削除する
+	query = strings.Replace(query, "1=1 AND ", "", -1)
+
 	if err := tx.Select(&announcements, query, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1466,8 +1474,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 
 	var targets []User
 	query := "SELECT `users`.* FROM `users`" +
-		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
-		" WHERE `registrations`.`course_id` = ?"
+		" WHERE EXISTS (SELECT * FROM `registrations` WHERE `registrations`.`user_id` = `users`.`id` AND `registrations`.`course_id` = ?)"
 	if err := tx.Select(&targets, query, req.CourseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
