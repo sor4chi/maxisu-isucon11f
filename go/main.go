@@ -36,7 +36,7 @@ type handlers struct {
 }
 
 func main() {
-	profile := profile.Start(profile.ProfilePath("/home/isucon/isuumo/webapp/go"))
+	profile := profile.Start(profile.ProfilePath("/home/isucon/webapp/go"))
 
 	e := echo.New()
 	e.Debug = GetEnv("DEBUG", "") == "true"
