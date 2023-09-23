@@ -575,48 +575,65 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	myCredits := 0
 	for _, course := range registeredCourses {
 		// 講義一覧の取得
-		var classes []Class
+		var classAndSubmissions []struct {
+			ID               string        `db:"id"`
+			CourseID         string        `db:"course_id"`
+			Part             uint8         `db:"part"`
+			Title            string        `db:"title"`
+			Description      string        `db:"description"`
+			SubmissionClosed bool          `db:"submission_closed"`
+			UserID           string        `db:"user_id"`
+			ClassID          string        `db:"class_id"`
+			FileName         string        `db:"file_name"`
+			Score            sql.NullInt64 `db:"score"`
+		}
+
 		query = "SELECT *" +
 			" FROM `classes`" +
-			" WHERE `course_id` = ?" +
-			" ORDER BY `part` DESC"
-		if err := h.DB.Select(&classes, query, course.ID); err != nil {
+			" JOIN `submissions` ON `classes`.`id` = `submissions`.`class_id`" +
+			" WHERE `classes`.`course_id` = ?" +
+			" GROUP BY `submissions`.`class_id`, `submissions`.`user_id`" +
+			" ORDER BY `classes`.`part` DESC"
+		if err := h.DB.Select(&classAndSubmissions, query, course.ID); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
 
 		// 講義毎の成績計算処理
-		classScores := make([]ClassScore, 0, len(classes))
-		var myTotalScore int
-		for _, class := range classes {
-			var submissionsCount int
-			if err := h.DB.Get(&submissionsCount, "SELECT COUNT(*) FROM `submissions` WHERE `class_id` = ?", class.ID); err != nil {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
+		var classScores []ClassScore
+		myTotalScore := 0
 
-			var myScore sql.NullInt64
-			if err := h.DB.Get(&myScore, "SELECT `submissions`.`score` FROM `submissions` WHERE `user_id` = ? AND `class_id` = ?", userID, class.ID); err != nil && err != sql.ErrNoRows {
-				c.Logger().Error(err)
-				return c.NoContent(http.StatusInternalServerError)
-			} else if err == sql.ErrNoRows || !myScore.Valid {
-				classScores = append(classScores, ClassScore{
-					ClassID:    class.ID,
-					Part:       class.Part,
-					Title:      class.Title,
-					Score:      nil,
-					Submitters: submissionsCount,
-				})
-			} else {
-				score := int(myScore.Int64)
-				myTotalScore += score
-				classScores = append(classScores, ClassScore{
-					ClassID:    class.ID,
-					Part:       class.Part,
-					Title:      class.Title,
-					Score:      &score,
-					Submitters: submissionsCount,
-				})
+		submissionCounts := make(map[string]int)
+		for _, classAndSubmission := range classAndSubmissions {
+			// 講義毎の提出数を計算
+			if _, ok := submissionCounts[classAndSubmission.ClassID]; !ok {
+				submissionCounts[classAndSubmission.ClassID] = 0
+			}
+			submissionCounts[classAndSubmission.ClassID]++
+		}
+
+		// 講義毎の成績を計算
+		for _, classAndSubmission := range classAndSubmissions {
+			if classAndSubmission.UserID == userID {
+				if classAndSubmission.Score.Valid {
+					score := int(classAndSubmission.Score.Int64)
+					myTotalScore += score
+					classScores = append(classScores, ClassScore{
+						ClassID:    classAndSubmission.ClassID,
+						Part:       classAndSubmission.Part,
+						Title:      classAndSubmission.Title,
+						Score:      &score,
+						Submitters: submissionCounts[classAndSubmission.ClassID],
+					})
+				} else {
+					classScores = append(classScores, ClassScore{
+						ClassID:    classAndSubmission.ClassID,
+						Part:       classAndSubmission.Part,
+						Title:      classAndSubmission.Title,
+						Score:      nil,
+						Submitters: submissionCounts[classAndSubmission.ClassID],
+					})
+				}
 			}
 		}
 
