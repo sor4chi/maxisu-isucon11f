@@ -372,9 +372,9 @@ func (h *handlers) GetRegisteredCourses(c echo.Context) error {
 	var courses []Course
 	query := "SELECT `courses`.*" +
 		" FROM `courses`" +
-		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
-		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
-	if err := tx.Select(&courses, query, StatusClosed, userID); err != nil {
+		" WHERE EXISTS (SELECT * FROM `registrations` WHERE `registrations`.`course_id` = `courses`.`id` AND `registrations`.`user_id` = ?)" +
+		" AND `courses`.`status` != ?"
+	if err := tx.Select(&courses, query, userID, StatusClosed); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -472,9 +472,9 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	var alreadyRegistered []Course
 	query := "SELECT `courses`.*" +
 		" FROM `courses`" +
-		" JOIN `registrations` ON `courses`.`id` = `registrations`.`course_id`" +
-		" WHERE `courses`.`status` != ? AND `registrations`.`user_id` = ?"
-	if err := tx.Select(&alreadyRegistered, query, StatusClosed, userID); err != nil {
+		" WHERE EXISTS (SELECT * FROM `registrations` WHERE `registrations`.`course_id` = `courses`.`id` AND `registrations`.`user_id` = ?)" +
+		" AND `courses`.`status` != ?"
+	if err := tx.Select(&alreadyRegistered, query, userID, StatusClosed); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1459,8 +1459,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 
 	var targets []User
 	query := "SELECT `users`.* FROM `users`" +
-		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
-		" WHERE `registrations`.`course_id` = ?"
+		" WHERE EXISTS (SELECT * FROM `registrations` WHERE `registrations`.`user_id` = `users`.`id` AND `registrations`.`course_id` = ?)"
 	if err := tx.Select(&targets, query, req.CourseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
