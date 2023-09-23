@@ -1,0 +1,22 @@
+name: Go package
+
+on: [push]
+
+env:
+  APP_DIR: "go"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"
+
+      - name: Build
+        run: |
+          cd $APP_DIR
+          go build -v ./...
