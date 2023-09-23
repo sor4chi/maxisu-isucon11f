@@ -625,7 +625,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		// この科目を履修している学生のTotalScore一覧を取得
 		var totals []int
 		query := "SELECT `total_score`" +
-			" FROM `registrations`" +
+			" FROM `registrations_with_total_score`" +
 			" WHERE `course_id` = ?"
 		if err := h.DB.Select(&totals, query, course.ID); err != nil {
 			c.Logger().Error(err)
