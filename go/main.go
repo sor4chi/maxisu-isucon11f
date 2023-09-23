@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/pkg/profile"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -37,6 +38,8 @@ type handlers struct {
 }
 
 func main() {
+	profile := profile.Start(profile.ProfilePath("/home/isucon/webapp/go"))
+
 	e := echo.New()
 	e.Debug = false
 	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
@@ -84,6 +87,10 @@ func main() {
 			announcementsAPI.GET("/:announcementID", h.GetAnnouncementDetail)
 		}
 	}
+	e.GET("/stop", func(c echo.Context) error {
+		profile.Stop()
+		return c.String(http.StatusOK, "stopped profile")
+	})
 
 	e.Logger.Error(e.StartServer(e.Server))
 }

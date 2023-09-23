@@ -9,6 +9,7 @@ require (
 	github.com/labstack/echo-contrib v0.11.0
 	github.com/labstack/echo/v4 v4.5.0
 	github.com/oklog/ulid/v2 v2.0.2
+	github.com/pkg/profile v1.2.1
 	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5
 )
 
