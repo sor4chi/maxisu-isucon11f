@@ -1268,22 +1268,36 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	return c.File(zipFilePath)
 }
 
-func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
-	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
+func copyFile(src string, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
 		return err
 	}
-	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
+func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
+	tmpDir := AssignmentsDirectory + classID + "/"
+
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return err
+	}
+	if err := os.Mkdir(tmpDir, 0777); err != nil {
 		return err
 	}
 
 	// ファイル名を指定の形式に変更
 	for _, submission := range submissions {
-		if err := exec.Command(
-			"cp",
-			AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
-			tmpDir+submission.UserCode+"-"+submission.FileName,
-		).Run(); err != nil {
+		if err := copyFile(AssignmentsDirectory+classID+"-"+submission.UserID+".pdf", tmpDir+submission.UserCode+"-"+submission.FileName); err != nil {
 			return err
 		}
 	}
