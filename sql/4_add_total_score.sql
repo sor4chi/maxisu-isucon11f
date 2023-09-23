@@ -1,2 +1,1 @@
-ALTER TABLE `registrations` ADD COLUMN `total_score` TINYINT UNSIGNED;
-UPDATE `registrations` SET `total_score` = 0;
+ALTER TABLE `registrations` ADD COLUMN `total_score` INT UNSIGNED NOT NULL DEFAULT 0;
