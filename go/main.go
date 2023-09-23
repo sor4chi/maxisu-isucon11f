@@ -1096,34 +1096,69 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	classID := c.Param("classID")
 
 	var status CourseStatus
-	if err := h.DB.Get(&status, "SELECT `status` FROM `courses` WHERE `id` = ?", courseID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	} else if err == sql.ErrNoRows {
-		return c.String(http.StatusNotFound, "No such course.")
-	}
-	if status != StatusInProgress {
-		return c.String(http.StatusBadRequest, "This course is not in progress.")
-	}
-
+	statusChan := make(chan error)
 	var registrationCount int
-	if err := h.DB.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ?", userID, courseID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if registrationCount == 0 {
-		return c.String(http.StatusBadRequest, "You have not taken this course.")
-	}
-
+	registrationCountChan := make(chan error)
 	var submissionClosed bool
-	if err := h.DB.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ?", classID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	} else if err == sql.ErrNoRows {
-		return c.String(http.StatusNotFound, "No such class.")
-	}
-	if submissionClosed {
-		return c.String(http.StatusBadRequest, "Submission has been closed for this class.")
+	submissionClosedChan := make(chan error)
+
+	go func() {
+		if err := h.DB.Get(&status, "SELECT `status` FROM `courses` WHERE `id` = ?", courseID); err != nil && err != sql.ErrNoRows {
+			statusChan <- c.NoContent(http.StatusInternalServerError)
+			return
+		} else if err == sql.ErrNoRows {
+			statusChan <- c.String(http.StatusNotFound, "No such course.")
+			return
+		}
+		if status != StatusInProgress {
+			statusChan <- c.String(http.StatusBadRequest, "This course is not in progress.")
+			return
+		}
+		statusChan <- nil
+	}()
+
+	go func() {
+		if err := h.DB.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ?", userID, courseID); err != nil {
+			registrationCountChan <- c.NoContent(http.StatusInternalServerError)
+			return
+		}
+		if registrationCount == 0 {
+			registrationCountChan <- c.String(http.StatusBadRequest, "You have not taken this course.")
+			return
+		}
+		registrationCountChan <- nil
+	}()
+
+	go func() {
+		if err := h.DB.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ?", classID); err != nil && err != sql.ErrNoRows {
+			submissionClosedChan <- c.NoContent(http.StatusInternalServerError)
+			return
+		} else if err == sql.ErrNoRows {
+			submissionClosedChan <- c.String(http.StatusNotFound, "No such class.")
+			return
+		}
+		if submissionClosed {
+			submissionClosedChan <- c.String(http.StatusBadRequest, "Submission has been closed for this class.")
+			return
+		}
+		submissionClosedChan <- nil
+	}()
+
+	for i := 0; i < 3; i++ {
+		select {
+		case err := <-statusChan:
+			if err != nil {
+				return err
+			}
+		case err := <-registrationCountChan:
+			if err != nil {
+				return err
+			}
+		case err := <-submissionClosedChan:
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	file, header, err := c.Request().FormFile("file")
